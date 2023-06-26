@@ -1,63 +1,32 @@
 // SPDX-License-Identifier: SEE LICENSE IN LICENSE
 pragma solidity ^0.8.0;
+import {IWrappedTokenGatewayV3} from "./interfaces/IWrappedTokenGatewayV3.sol";
+import {IPool} from "./interfaces/IPool.sol";
 
-import "./uniswapV2/periphery/interfaces/IUniswapV2Router02.sol";
-import "./compound/interfaces/ICErc20.sol";
-import "./token/IERC20.sol";
-import "./compound/interfaces/ICEther.sol";
-import "./interfaces/IWETH9.sol";
+contract AaveFunnel {
+    IWrappedTokenGatewayV3 immutable _gateway;
 
-contract CompoundFunnel {
-    IWETH9 weth;
-
-    constructor(IWETH9 _weth) {
-        weth = _weth;
+    constructor(IWrappedTokenGatewayV3 gateway) {
+        _gateway = gateway;
     }
 
     /*******************************************************
-     * ReceiveToken -> DepositToken
-     * ETH -> ERC20 Token : depositReceivedETHThenGetCToken
-     * ERC20 Token -> ERC20 Token: depositReceivedTokenThenGetCToken
-     * ERC20 Token -> ETH: depositReceivedTokenThenGetcETH
-     * ETH -> ETH: depositReceivedETHThenGetcETH
+     * Swap To Token To Deposit To AAVE
+     * then, Token To Deposit -> ReceiveAToken
+     * ETH -> AToken : depositReceivedETHThenGetAToken
+     * ERC20 -> AToken: depositReceivedTokenThenGetAToken
      *********************************************************/
-    /**
-     * Receive token and swap to dst token then deposit to lending protocol
-     * @param cTokenInDst lendingProtocol's cToken address (ex. cUSDC address)
-     * @param receviedTokenAmount The amount of receivedToken that will be swapped to tokenInSrc
-     * @param dexUsingSwap The dex that will be used to swap receivedToken to tokenInSrc
-     * @param path The path that will be used to swap receivedToken to tokenInSrc , path[0] is receivedToken and path[path.length-1] is tokenInSrc
-     * @param to The address that will receive the cToken
-     * @param deadline The deadline that will be used to swap receivedToken to tokenInSrc
-     * @return cTokenInDstAmount The amount of cToken that will be received
-     */
-    function depositReceivedTokenThenGetCToken(
-        ICErc20 cTokenInDst,
+
+    function depositReceivedTokenThenGetAToken(
+        IPool pool,
         uint receviedTokenAmount,
-        IUniswapV2Router02 dexUsingSwap,
         address[] memory path,
         address to,
         uint deadline
     ) external returns (uint cTokenInDstAmount) {
-        address tokenInSrc = cTokenInDst.underlying();
-        // 1. Swap receivedToken to tokenInSrc
-        if (path[0] != tokenInSrc) {
-            IUniswapV2Router02(dexUsingSwap).swapExactTokensForTokens(
-                receviedTokenAmount,
-                1,
-                path,
-                address(this),
-                deadline
-            );
-        }
-        // 2. Deposit tokenInSrc to lendingProtocol
-        uint tokenDepositBalance = IERC20(tokenInSrc).balanceOf(address(this));
-
-        // 3. Mint cToken
-        ICErc20(cTokenInDst).mint(tokenDepositBalance);
-        cTokenInDstAmount = ICErc20(cTokenInDst).balanceOf(address(this));
-        // 4. Transfer cToken to "to"
-        ICErc20(cTokenInDst).transfer(to, cTokenInDstAmount);
+        //1. Swap receivedToken to tokenInSrc
+        //2. Deposit tokenInSrc to lendingProtocol
+        //3. Transfer AToken to "to"
     }
 
     function depositReceivedETHThenGetCToken(
@@ -128,6 +97,12 @@ contract CompoundFunnel {
         ICEther(cEtherToDeposit).transfer(to, receviedCEtherAmount);
     }
 
+    /*******************************************************
+     * Withdraw AToken To Token
+     * then, Swap Token to dstToken
+     * if dstToken is ETH, withdrawATokenThenSwapToETH
+     * if dstToken is ERC20, withdrawATokenThenSwapToToken
+     *********************************************************/
     function redeemCTokenToErc20Token(
         ICErc20 cTokenToRedeem,
         uint redeemAmounts,
