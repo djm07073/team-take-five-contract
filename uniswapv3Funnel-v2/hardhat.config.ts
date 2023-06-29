@@ -14,41 +14,14 @@ const config: HardhatUserConfig = {
           viaIR: true,
           optimizer: {
             enabled: true,
-            runs: 3000,
+            runs: 200,
           },
-        },
-      },
-      {
-        version: "0.8.18",
-
-        settings: {
-          optimizer: {
-            enabled: true,
-            runs: 3000,
-          },
-          viaIR: true,
         },
       },
     ],
-
-    overrides: {
-      "contracts/uniswapV2/core": {
-        version: "0.5.16",
-      },
-      "contracts/uniswapV2/periphery": {
-        version: "0.6.6",
-      },
-      "libraries/PoolAddress.sol": { version: "0.5.16" },
-    },
   },
 
   networks: {
-    // hardhat: {
-    //   forking: {
-    //     url: "https://public-01.testnet.thebifrost.io/rpc",
-    //   }
-    // },
-
     baobab: {
       url: "https://api.baobab.klaytn.net:8651",
       accounts: [SH_PK],
