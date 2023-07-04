@@ -1,29 +1,66 @@
 import { HardhatUserConfig } from "hardhat/config";
 import "@nomicfoundation/hardhat-toolbox";
-
 import dotenv from "dotenv";
 dotenv.config();
+
 const SH_PK: string = process.env.SH!;
 const SH_PK2: string = process.env.SH2!;
-const config: HardhatUserConfig = {
-  solidity: {
-    compilers: [
-      {
-        version: "0.7.6",
-        settings: {
-          evmVersion: "istanbul",
-          optimizer: {
-            enabled: true,
-            runs: 1_000,
-          },
-          metadata: {
-            bytecodeHash: "none",
-          },
-        },
-      },
-    ],
-  },
 
+const LOW_OPTIMIZER_COMPILER_SETTINGS = {
+  version: "0.7.6",
+  settings: {
+    evmVersion: "istanbul",
+    optimizer: {
+      enabled: true,
+      runs: 2_000,
+    },
+    metadata: {
+      bytecodeHash: "none",
+    },
+  },
+};
+
+const LOWEST_OPTIMIZER_COMPILER_SETTINGS = {
+  version: "0.7.6",
+  settings: {
+    evmVersion: "istanbul",
+    optimizer: {
+      enabled: true,
+      runs: 1_000,
+    },
+    metadata: {
+      bytecodeHash: "none",
+    },
+  },
+};
+const VIA_IR_COMPILER_SETTINGS = {
+  version: "0.7.6",
+  settings: {
+    viaIR: true,
+    evmVersion: "istanbul",
+    optimizer: {
+      enabled: true,
+      runs: 1_000,
+    },
+    metadata: {
+      bytecodeHash: "none",
+    },
+  },
+};
+const DEFAULT_COMPILER_SETTINGS = {
+  version: "0.7.6",
+  settings: {
+    evmVersion: "istanbul",
+    optimizer: {
+      enabled: true,
+      runs: 1_000_000,
+    },
+    metadata: {
+      bytecodeHash: "none",
+    },
+  },
+};
+export default {
   networks: {
     baobab: {
       url: "https://api.baobab.klaytn.net:8651",
@@ -88,6 +125,7 @@ const config: HardhatUserConfig = {
       gasPrice: 100000000000,
     },
   },
+  solidity: {
+    compilers: [DEFAULT_COMPILER_SETTINGS],
+  },
 };
-
-export default config;

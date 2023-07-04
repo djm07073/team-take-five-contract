@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: GPL-2.0-or-later
 pragma solidity >=0.5.0;
+pragma abicoder v2;
 
 /// @title Interface for permit
 /// @notice Interface used by DAI/CHAI for permit

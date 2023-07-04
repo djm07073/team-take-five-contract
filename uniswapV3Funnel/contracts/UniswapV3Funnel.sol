@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: SEE LICENSE IN LICENSE
-pragma solidity =0.7.6;
+pragma solidity >=0.7.6;
 pragma abicoder v2;
 import "./libraries/TickMath.sol";
 import "./interfaces/INonfungiblePositionManager.sol";
@@ -8,9 +8,9 @@ import "./interfaces/IUniswapV3Pool.sol";
 import "./interfaces/IUniswapV3Factory.sol";
 import "./libraries/TransferHelper.sol";
 import "./libraries/RebalanceDeposit.sol";
+import "./interfaces/IERC20Minimal.sol";
 
 contract UniswapV3Funnel {
-    using TransferHelper for address;
     ISwapRouter public immutable swapRouter;
     INonfungiblePositionManager public immutable positionManager;
     IUniswapV3Factory public immutable factory;
@@ -35,9 +35,7 @@ contract UniswapV3Funnel {
 
     //sqrtPriceX = sqrt(amountY/amountX) * 2^96
     function rebalanceAndAddLiquidity(
-        address tokenA,
-        address tokenB,
-        uint24 fee,
+        IUniswapV3Pool pool, //(factory, tokenA, tokenB, fee)
         uint160 sqrtPriceX96Upper,
         uint160 sqrtPriceX96Lower,
         uint amountA,
@@ -52,11 +50,21 @@ contract UniswapV3Funnel {
             uint successB
         )
     {
-        // 1. sort token0 and token1
-        require(tokenA != tokenB, "token0 and token1 must be different");
-        (tokenA, tokenB, amountA, amountB) = tokenA < tokenB
-            ? (tokenA, tokenB, amountA, amountB)
-            : (tokenB, tokenA, amountB, amountA);
+        require(address(pool) != address(0), "pool must exist");
+
+        // 1. transfer tokenA and tokenB to this contract
+        TransferHelper.safeTransferFrom(
+            pool.token0(),
+            msg.sender,
+            address(this),
+            amountA
+        );
+        TransferHelper.safeTransferFrom(
+            pool.token1(),
+            msg.sender,
+            address(this),
+            amountB
+        );
         // 2. rebalance and add liquidity
         (
             tokenId,
@@ -64,26 +72,23 @@ contract UniswapV3Funnel {
             successA,
             successB
         ) = _rebalanceAndAddLiquidity(
-            tokenA,
-            tokenB,
-            fee,
+            IUniswapV3Pool(pool),
             sqrtPriceX96Upper,
             sqrtPriceX96Lower,
-            amountA,
-            amountB,
-            msg.sender,
             to //if mint by myself, to = msg.sender
         );
-        // 3. Transfer tokens back to user if there is any left
-        _transferRestTokens(tokenA, tokenB, msg.sender);
+        // 4. Transfer tokens back to user if there is any left
+        _transferRestTokens(
+            IERC20Minimal(pool.token0()),
+            IERC20Minimal(pool.token0()),
+            msg.sender
+        );
     }
 
     // partition function is not needed, because we can use rebalance to do the same thing
 
     function decomposeAndAddLiquidity(
-        address tokenA,
-        address tokenB,
-        uint24 fee,
+        address pool, //(facto)
         uint160 sqrtPriceX96Upper,
         uint160 sqrtPriceX96Lower,
         uint amountC,
@@ -98,102 +103,87 @@ contract UniswapV3Funnel {
             uint successB
         )
     {
-        require(tokenA != tokenB, "token0 and token1 must be different");
-
-        //1. sort token0 and token1
-        (tokenA, tokenB) = tokenA < tokenB
-            ? (tokenA, tokenB)
-            : (tokenB, tokenA);
-
+        require(pool != address(0), "pool must exist");
         require(
-            tokenA == path[path.length - 1] || tokenB == path[path.length - 1],
+            IUniswapV3Pool(pool).token0() == path[path.length - 1] ||
+                IUniswapV3Pool(pool).token1() == path[path.length - 1],
             "path must end with tokenA or tokenB"
         );
         //2. Transfer tokenC to this contract
-        (path[0]).safeTransferFrom(msg.sender, address(this), amountC);
+        TransferHelper.safeTransferFrom(
+            (path[0]),
+            msg.sender,
+            address(this),
+            amountC
+        );
         //3. Swap amountC of tokenC to token0 or token1
-        uint amountOut;
-        {
-            amountOut = swapRouter.exactInput(
-                ISwapRouter.ExactInputParams(
-                    abi.encodePacked(path),
-                    address(this),
-                    type(uint).max,
-                    amountC,
-                    0
-                )
-            );
-        }
 
-        //3. Rebalance amountOut and add liquidity and mint to "to"
-        if (tokenA == path[path.length - 1]) {
-            (
-                tokenId,
-                successLiquidity,
-                successA,
-                successB
-            ) = _rebalanceAndAddLiquidity(
-                tokenA,
-                tokenB,
-                fee,
-                sqrtPriceX96Upper,
-                sqrtPriceX96Lower,
-                amountOut,
-                0,
+        swapRouter.exactInput(
+            ISwapRouter.ExactInputParams(
+                abi.encodePacked(path),
                 address(this),
-                to
-            );
-        } else if (tokenB == path[path.length - 1]) {
-            (
-                tokenId,
-                successLiquidity,
-                successA,
-                successB
-            ) = _rebalanceAndAddLiquidity(
-                tokenA,
-                tokenB,
-                fee,
-                sqrtPriceX96Upper,
-                sqrtPriceX96Lower,
-                0,
-                amountOut,
-                address(this),
-                to
-            );
-        }
+                type(uint).max,
+                amountC,
+                0
+            )
+        );
+
+        //4. Rebalance amountOut and add liquidity and mint to "to"
+
+        (
+            tokenId,
+            successLiquidity,
+            successA,
+            successB
+        ) = _rebalanceAndAddLiquidity(
+            IUniswapV3Pool(pool),
+            sqrtPriceX96Upper,
+            sqrtPriceX96Lower,
+            to
+        );
+
         //4. Transfer back to user if there is any left
-        _transferRestTokens(tokenA, tokenB, msg.sender);
+        _transferRestTokens(
+            IERC20Minimal(IUniswapV3Pool(pool).token0()),
+            IERC20Minimal(IUniswapV3Pool(pool).token1()),
+            msg.sender
+        );
     }
 
     /*** add liquidity to existing pool ***/
     function rebalanceAndIncreaseLiquidity(
         uint tokenId,
-        address tokenA,
-        address tokenB,
-        uint amountA,
+        IUniswapV3Pool pool,
+        uint amountA, //
         uint amountB
-    ) external returns (uint successLiquidity, uint successA, uint successB) {
-        require(tokenA != tokenB, "tokenA and tokenB must be different");
-        //1. sort tokenA and tokenB
-        (tokenA, tokenB, amountA, amountB) = tokenA < tokenB
-            ? (tokenA, tokenB, amountA, amountB)
-            : (tokenB, tokenA, amountB, amountA);
-        //2. rebalance and increase liquidity
-        (
-            successLiquidity,
-            ,
-            ,
-            successA,
-            successB
-        ) = _rebalanceAndIncreaseLiquidity(
+    ) external returns (uint successLiquidity) {
+        // 1. transfer tokenA and tokenB to this contract
+        TransferHelper.safeTransferFrom(
+            pool.token0(),
+            msg.sender,
+            address(this),
+            amountA
+        );
+        TransferHelper.safeTransferFrom(
+            pool.token1(),
+            msg.sender,
+            address(this),
+            amountB
+        );
+        // 3. rebalance and increase liquidity
+        (successLiquidity) = _rebalanceAndIncreaseLiquidity(
             tokenId,
             amountA,
             amountB,
             msg.sender
         );
 
-        // Transfer back to user if there is any left
-        _transferRestTokens(tokenA, tokenB, msg.sender);
+        // 4. Transfer back to user if there is any left
+        _transferRestTokens(
+            IERC20Minimal(pool.token0()),
+            IERC20Minimal(pool.token1()),
+            msg.sender
+        );
     }
 
     // function partitionAndIncreaseLiquidity is not needed, because we can use rebalance to do the same thing
@@ -202,9 +192,14 @@ contract UniswapV3Funnel {
         address tokenC,
         uint amountC,
         address[] memory path // tokenC -> tokenA or tokenB path
-    ) external returns (uint successLiquidity, uint successA, uint successB) {
+    ) external returns (uint successLiquidity) {
         // 1. Transfer tokenC to this contract
-        tokenC.safeTransferFrom(msg.sender, address(this), amountC);
+        TransferHelper.safeTransferFrom(
+            tokenC,
+            msg.sender,
+            address(this),
+            amountC
+        );
 
         // 2. Swap amountC of tokenC to tokenA
         uint amountOut = swapRouter.exactInput(
@@ -219,15 +214,18 @@ contract UniswapV3Funnel {
         address tokenA;
         address tokenB;
 
-        (
-            successLiquidity,
-            tokenA,
-            tokenB,
-            successA,
-            successB
-        ) = _rebalanceAndIncreaseLiquidity(tokenId, amountOut, 0, msg.sender);
+        (successLiquidity) = _rebalanceAndIncreaseLiquidity(
+            tokenId,
+            amountOut,
+            0,
+            msg.sender
+        );
         // 3. Transfer back to user if there is any left
-        _transferRestTokens(tokenA, tokenB, msg.sender);
+        _transferRestTokens(
+            IERC20Minimal(tokenA),
+            IERC20Minimal(tokenB),
+            msg.sender
+        );
     }
 
     /*** collect fee ***/
@@ -277,7 +275,8 @@ contract UniswapV3Funnel {
             )
         );
         //4. Transfer dstToken to user & Transfer NFT to user
-        address(path1[path1.length - 1]).safeTransfer(
+        TransferHelper.safeTransfer(
+            address(path1[path1.length - 1]),
             to,
             amount0Out + amount1Out
         );
@@ -354,7 +353,8 @@ contract UniswapV3Funnel {
         }
         //4.3 transfer dstToken to "to"
 
-        (path1[path1.length - 1]).safeTransfer(
+        TransferHelper.safeTransfer(
+            (path1[path1.length - 1]),
             msg.sender,
             amountAOut + amountBOut
         );
@@ -372,64 +372,56 @@ contract UniswapV3Funnel {
     }
 
     function _transferRestTokens(
-        address tokenA,
-        address tokenB,
+        IERC20Minimal tokenA,
+        IERC20Minimal tokenB,
         address to
     ) internal {
-        if (tokenA != address(0)) {
-            uint amountA = IERC20(tokenA).balanceOf(address(this));
-            if (amountA > 0) {
-                tokenA.safeTransfer(to, amountA);
-            }
+        if (tokenA.balanceOf(address(this)) != 0) {
+            TransferHelper.safeTransferFrom(
+                address(tokenA),
+                address(this),
+                to,
+                tokenA.balanceOf(address(this))
+            );
         }
-
-        if (tokenB != address(0)) {
-            uint amountB = IERC20(tokenB).balanceOf(address(this));
-            if (amountB > 0) {
-                tokenB.safeTransfer(to, amountB);
-            }
+        if (tokenB.balanceOf(address(this)) != 0) {
+            TransferHelper.safeTransferFrom(
+                address(tokenB),
+                address(this),
+                to,
+                tokenB.balanceOf(address(this))
+            );
         }
     }
 
     function _rebalanceAndAddLiquidity(
-        address tokenA,
-        address tokenB, //already sorted
-        uint24 fee,
+        IUniswapV3Pool pool,
         uint160 sqrtPriceX96Upper,
         uint160 sqrtPriceX96Lower,
-        uint amountA,
-        uint amountB,
-        address from, //user
         address to
     )
         internal
-        returns (uint tokenId, uint liquidity, uint successA, uint successB)
+        returns (
+            uint tokenId,
+            uint successLiquidity,
+            uint successA,
+            uint successB
+        )
     {
-        // Get Pool Address and current price
-        address pool = factory.getPool(tokenA, tokenB, fee);
-        require(pool != address(0), "pool does not exist");
-        (uint160 sqrtPriceX96, , , , , , ) = IUniswapV3Pool(pool).slot0();
-        //1. Transfer tokenA and tokenB to this contract
-        if (from != address(this)) {
-            tokenA.safeTransferFrom(from, address(this), amountA);
-            tokenB.safeTransferFrom(from, address(this), amountB);
-        }
-        //2. Calculate how much token A to swap or how much token B to swap
+        //1. Calculate how much token A to swap or how much token B to swap
         (uint baseAmount, bool isSwapA) = RebalanceDeposit.rebalanceDeposit(
-            tokenA,
-            tokenB,
+            pool,
             sqrtPriceX96Upper,
             sqrtPriceX96Lower,
-            sqrtPriceX96,
-            amountA,
-            amountB
+            IERC20Minimal(pool.token0()).balanceOf(address(this)),
+            IERC20Minimal(pool.token1()).balanceOf(address(this))
         );
-        //3. Swap token A or token B using UniswapV3 SwapRouter
-        uint farmAmount = swapRouter.exactInputSingle(
+        //2. Swap token A or token B using UniswapV3 SwapRouter
+        swapRouter.exactInputSingle(
             ISwapRouter.ExactInputSingleParams({
-                tokenIn: isSwapA ? tokenA : tokenB,
-                tokenOut: isSwapA ? tokenB : tokenA,
-                fee: fee,
+                tokenIn: isSwapA ? (pool.token0()) : (pool.token1()),
+                tokenOut: isSwapA ? (pool.token1()) : (pool.token0()),
+                fee: pool.fee(),
                 recipient: address(this),
                 deadline: type(uint).max,
                 amountIn: baseAmount,
@@ -437,22 +429,24 @@ contract UniswapV3Funnel {
                 sqrtPriceLimitX96: 0
             })
         );
-        amountA = isSwapA ? amountA - baseAmount : amountA + farmAmount;
-        amountB = isSwapA ? amountB + farmAmount : amountB - baseAmount;
 
         // Get Tick From Price
         int24 tickLower = TickMath.getTickAtSqrtRatio(sqrtPriceX96Lower);
         int24 tickUpper = TickMath.getTickAtSqrtRatio(sqrtPriceX96Upper);
-        //4. Add liquidity To UniswapV3 and Mint to user
-        (tokenId, liquidity, successA, successB) = positionManager.mint(
+        //3. Add liquidity To UniswapV3 and Mint to user
+        (tokenId, successLiquidity, successA, successB) = positionManager.mint(
             INonfungiblePositionManager.MintParams({
-                token0: tokenA,
-                token1: tokenB,
-                fee: fee,
+                token0: pool.token0(),
+                token1: pool.token1(),
+                fee: pool.fee(),
                 tickLower: tickLower,
                 tickUpper: tickUpper,
-                amount0Desired: amountA,
-                amount1Desired: amountB,
+                amount0Desired: IERC20Minimal(pool.token0()).balanceOf(
+                    address(this)
+                ),
+                amount1Desired: IERC20Minimal(pool.token1()).balanceOf(
+                    address(this)
+                ),
                 amount0Min: 0,
                 amount1Min: 0,
                 recipient: to,
@@ -466,75 +460,73 @@ contract UniswapV3Funnel {
         uint amountA, //-> amount of tokenA
         uint amountB, //-> amount of tokenB
         address from //user
-    )
-        internal
-        returns (
-            uint successLiquidity,
-            address tokenA,
-            address tokenB,
-            uint successA,
-            uint successB
-        )
-    {
-        uint160 sqrtPriceX96Lower;
-        uint160 sqrtPriceX96Upper;
-        uint24 fee;
-        {
-            int24 tickLower;
-            int24 tickUpper;
-            (, , , , fee, tickLower, tickUpper, , , , , ) = positionManager
-                .positions(tokenId);
-
-            sqrtPriceX96Lower = TickMath.getSqrtRatioAtTick(tickLower);
-            sqrtPriceX96Upper = TickMath.getSqrtRatioAtTick(tickUpper);
-        }
-        uint160 sqrtPriceX96;
-        {
-            address pool = factory.getPool(tokenA, tokenB, fee);
-            (sqrtPriceX96, , , , , , ) = IUniswapV3Pool(pool).slot0();
-        }
+    ) internal returns (uint) {
         //1. Calculate how much token A to swap or how much token B to swap
-        (uint baseAmount, bool isSwapA) = RebalanceDeposit.rebalanceDeposit(
-            tokenA,
-            tokenB,
-            sqrtPriceX96Upper,
-            sqrtPriceX96Lower,
-            sqrtPriceX96,
-            amountA,
-            amountB
-        );
-        //2. Transfer NFT,tokenA and tokenB to this contract
-        positionManager.safeTransferFrom(from, address(this), tokenId);
-        if (from != address(this)) {
-            tokenA.safeTransferFrom(from, address(this), amountA);
-            tokenB.safeTransferFrom(from, address(this), amountB);
+
+        {
+            (
+                uint baseAmount,
+                bool isSwapA,
+                ,
+                ,
+                uint24 fee,
+                address _tokenA,
+                address _tokenB
+            ) = RebalanceDeposit.rebalanceIncrease(
+                    positionManager,
+                    factory,
+                    tokenId,
+                    amountA,
+                    amountB
+                );
+
+            //2. Transfer NFT,tokenA and tokenB to this contract
+            positionManager.safeTransferFrom(from, address(this), tokenId);
+            if (from != address(this)) {
+                TransferHelper.safeTransferFrom(
+                    _tokenA,
+                    from,
+                    address(this),
+                    amountA
+                );
+                TransferHelper.safeTransferFrom(
+                    _tokenB,
+                    from,
+                    address(this),
+                    amountB
+                );
+            }
+            {
+                //3. Swap token A or token B using UniswapV3 SwapRouter
+                uint farmAmount = swapRouter.exactInputSingle(
+                    ISwapRouter.ExactInputSingleParams({
+                        tokenIn: isSwapA ? _tokenA : _tokenB,
+                        tokenOut: isSwapA ? _tokenB : _tokenA,
+                        fee: fee,
+                        recipient: address(this),
+                        deadline: type(uint).max,
+                        amountIn: baseAmount,
+                        amountOutMinimum: 0,
+                        sqrtPriceLimitX96: 0
+                    })
+                );
+
+                amountA = isSwapA ? amountA - baseAmount : amountA + farmAmount;
+                amountB = isSwapA ? amountB + farmAmount : amountB - baseAmount;
+            }
         }
-        //3. Swap token A or token B using UniswapV3 SwapRouter
-        uint farmAmount = swapRouter.exactInputSingle(
-            ISwapRouter.ExactInputSingleParams({
-                tokenIn: isSwapA ? tokenA : tokenB,
-                tokenOut: isSwapA ? tokenB : tokenA,
-                fee: fee,
-                recipient: address(this),
-                deadline: type(uint).max,
-                amountIn: baseAmount,
-                amountOutMinimum: 0,
-                sqrtPriceLimitX96: 0
+        //4. Increase liquidity
+        (uint successLiquidity, , ) = positionManager.increaseLiquidity(
+            INonfungiblePositionManager.IncreaseLiquidityParams({
+                tokenId: tokenId,
+                amount0Desired: amountA,
+                amount1Desired: amountB,
+                amount0Min: 0,
+                amount1Min: 0,
+                deadline: type(uint).max
             })
         );
-        amountA = isSwapA ? amountA - baseAmount : amountA + farmAmount;
-        amountB = isSwapA ? amountB + farmAmount : amountB - baseAmount;
-        //4. Increase liquidity
-        (successLiquidity, successA, successB) = positionManager
-            .increaseLiquidity(
-                INonfungiblePositionManager.IncreaseLiquidityParams({
-                    tokenId: tokenId,
-                    amount0Desired: amountA,
-                    amount1Desired: amountB,
-                    amount0Min: 0,
-                    amount1Min: 0,
-                    deadline: type(uint).max
-                })
-            );
+
+        return (successLiquidity);
     }
 }

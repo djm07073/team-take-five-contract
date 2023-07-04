@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: MIT
 pragma solidity =0.7.6;
+pragma abicoder v2;
 
 library TokenRatioSortOrder {
     int256 constant NUMERATOR_MOST = 300;

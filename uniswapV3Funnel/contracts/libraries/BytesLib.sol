@@ -7,6 +7,7 @@
  *      The library lets you concatenate, slice and type cast bytes arrays both in memory and storage.
  */
 pragma solidity >=0.5.0 <0.8.0;
+pragma abicoder v2;
 
 library BytesLib {
     function slice(
