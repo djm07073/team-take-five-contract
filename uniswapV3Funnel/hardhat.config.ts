@@ -62,6 +62,12 @@ const DEFAULT_COMPILER_SETTINGS = {
 };
 export default {
   networks: {
+    hardhat: {
+      forking: {
+        url: "https://eth.llamarpc.com",
+        blockNumber: 17618304,
+      },
+    },
     baobab: {
       url: "https://api.baobab.klaytn.net:8651",
       accounts: [SH_PK],

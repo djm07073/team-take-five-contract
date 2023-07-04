@@ -154,8 +154,8 @@ contract UniswapV3Funnel {
     function rebalanceAndIncreaseLiquidity(
         uint tokenId,
         IUniswapV3Pool pool,
-        uint amountA, //
-        uint amountB
+        uint112 amountA, //
+        uint112 amountB
     ) external returns (uint successLiquidity) {
         // 1. transfer tokenA and tokenB to this contract
         TransferHelper.safeTransferFrom(
@@ -216,7 +216,7 @@ contract UniswapV3Funnel {
 
         (successLiquidity) = _rebalanceAndIncreaseLiquidity(
             tokenId,
-            amountOut,
+            uint112(amountOut),
             0,
             msg.sender
         );
@@ -413,8 +413,8 @@ contract UniswapV3Funnel {
             pool,
             sqrtPriceX96Upper,
             sqrtPriceX96Lower,
-            IERC20Minimal(pool.token0()).balanceOf(address(this)),
-            IERC20Minimal(pool.token1()).balanceOf(address(this))
+            uint112(IERC20Minimal(pool.token0()).balanceOf(address(this))),
+            uint112(IERC20Minimal(pool.token1()).balanceOf(address(this)))
         );
         //2. Swap token A or token B using UniswapV3 SwapRouter
         swapRouter.exactInputSingle(
@@ -457,8 +457,8 @@ contract UniswapV3Funnel {
 
     function _rebalanceAndIncreaseLiquidity(
         uint tokenId,
-        uint amountA, //-> amount of tokenA
-        uint amountB, //-> amount of tokenB
+        uint112 amountA, //-> amount of tokenA
+        uint112 amountB, //-> amount of tokenB
         address from //user
     ) internal returns (uint) {
         //1. Calculate how much token A to swap or how much token B to swap
@@ -511,8 +511,12 @@ contract UniswapV3Funnel {
                     })
                 );
 
-                amountA = isSwapA ? amountA - baseAmount : amountA + farmAmount;
-                amountB = isSwapA ? amountB + farmAmount : amountB - baseAmount;
+                amountA = isSwapA
+                    ? amountA - uint112(baseAmount)
+                    : amountA + uint112(farmAmount);
+                amountB = isSwapA
+                    ? amountB + uint112(farmAmount)
+                    : amountB - uint112(baseAmount);
             }
         }
         //4. Increase liquidity
