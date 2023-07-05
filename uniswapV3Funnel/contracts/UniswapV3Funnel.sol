@@ -36,8 +36,8 @@ contract UniswapV3Funnel {
     //sqrtPriceX = sqrt(amountY/amountX) * 2^96
     function rebalanceAndAddLiquidity(
         IUniswapV3Pool pool, //(factory, tokenA, tokenB, fee)
-        uint160 sqrtPriceX96Upper,
-        uint160 sqrtPriceX96Lower,
+        int24 tickUpper,
+        int24 tickLower,
         uint amountA,
         uint amountB,
         address to
@@ -73,8 +73,8 @@ contract UniswapV3Funnel {
             successB
         ) = _rebalanceAndAddLiquidity(
             IUniswapV3Pool(pool),
-            sqrtPriceX96Upper,
-            sqrtPriceX96Lower,
+            tickUpper,
+            tickLower,
             to //if mint by myself, to = msg.sender
         );
         // 4. Transfer tokens back to user if there is any left
@@ -89,8 +89,8 @@ contract UniswapV3Funnel {
 
     function decomposeAndAddLiquidity(
         address pool, //(facto)
-        uint160 sqrtPriceX96Upper,
-        uint160 sqrtPriceX96Lower,
+        int24 tickUpper,
+        int24 tickLower,
         uint amountC,
         address to,
         address[] memory path // path[0] = tokenC -> token0 or token1 path
@@ -137,8 +137,8 @@ contract UniswapV3Funnel {
             successB
         ) = _rebalanceAndAddLiquidity(
             IUniswapV3Pool(pool),
-            sqrtPriceX96Upper,
-            sqrtPriceX96Lower,
+            tickUpper,
+            tickLower,
             to
         );
 
@@ -396,8 +396,8 @@ contract UniswapV3Funnel {
 
     function _rebalanceAndAddLiquidity(
         IUniswapV3Pool pool,
-        uint160 sqrtPriceX96Upper,
-        uint160 sqrtPriceX96Lower,
+        int24 tickUpper,
+        int24 tickLower,
         address to
     )
         internal
@@ -411,8 +411,8 @@ contract UniswapV3Funnel {
         //1. Calculate how much token A to swap or how much token B to swap
         (uint baseAmount, bool isSwapA) = RebalanceDeposit.rebalanceDeposit(
             pool,
-            sqrtPriceX96Upper,
-            sqrtPriceX96Lower,
+            tickUpper,
+            tickLower,
             uint112(IERC20Minimal(pool.token0()).balanceOf(address(this))),
             uint112(IERC20Minimal(pool.token1()).balanceOf(address(this)))
         );
@@ -429,10 +429,6 @@ contract UniswapV3Funnel {
                 sqrtPriceLimitX96: 0
             })
         );
-
-        // Get Tick From Price
-        int24 tickLower = TickMath.getTickAtSqrtRatio(sqrtPriceX96Lower);
-        int24 tickUpper = TickMath.getTickAtSqrtRatio(sqrtPriceX96Upper);
         //3. Add liquidity To UniswapV3 and Mint to user
         (tokenId, successLiquidity, successA, successB) = positionManager.mint(
             INonfungiblePositionManager.MintParams({

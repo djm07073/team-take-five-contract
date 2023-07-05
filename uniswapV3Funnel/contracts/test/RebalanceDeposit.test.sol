@@ -9,15 +9,15 @@ import "../interfaces/IUniswapV3Factory.sol";
 contract RebalanceDepositTest {
     function rebalanceDepositTest(
         IUniswapV3Pool pool,
-        uint160 sqrtPriceX96Upper,
-        uint160 sqrtPriceX96Lower,
+        int24 tickUpper,
+        int24 tickLower,
         uint112 amountY,
         uint112 amountX
     ) public view returns (uint baseAmount, bool isSwapX) {
         (baseAmount, isSwapX) = RebalanceDeposit.rebalanceDeposit(
             pool,
-            sqrtPriceX96Upper,
-            sqrtPriceX96Lower,
+            tickUpper,
+            tickLower,
             amountX,
             amountY
         );

@@ -24,8 +24,8 @@ library RebalanceDeposit {
 
     /**
      * @param pool pool address
-     * @param sqrtPriceX96Upper sqrtPriceX96Upper
-     * @param sqrtPriceX96Lower sqrtPriceX96Lower
+     * @param tickUpper tickUpper
+     * @param tickLower tickLower
      * @param amountX amount of token X
      * @param amountY amount of token Y
      * @return baseAmount amount of token X or Y to swap
@@ -33,19 +33,26 @@ library RebalanceDeposit {
      */
     function rebalanceDeposit(
         IUniswapV3Pool pool,
-        uint160 sqrtPriceX96Upper,
-        uint160 sqrtPriceX96Lower,
+        int24 tickUpper,
+        int24 tickLower,
         uint112 amountX,
         uint112 amountY
     ) internal view returns (uint256 baseAmount, bool isSwapX) {
         require(address(pool) != address(0), "pool does not exist");
-        (uint160 sqrtPriceX96, , , , , , ) = IUniswapV3Pool(pool).slot0();
+        require(tickUpper > tickLower, "UL");
 
-        require(sqrtPriceX96Upper > sqrtPriceX96, "U");
-        require(sqrtPriceX96 > sqrtPriceX96Lower, "L");
-        require(sqrtPriceX96Upper > sqrtPriceX96Lower, "UL");
-
+        SqrtPriceX96Range memory range;
+        uint128 liquidity;
+        int24 tickCurrent;
+        uint160 sqrtPriceX96;
         {
+            (sqrtPriceX96, tickCurrent, , , , , ) = IUniswapV3Pool(pool)
+                .slot0();
+
+            require(tickUpper > tickCurrent, "U");
+            require(tickCurrent > tickLower, "L");
+            uint160 sqrtPriceX96Upper = TickMath.getSqrtRatioAtTick(tickUpper);
+            uint160 sqrtPriceX96Lower = TickMath.getSqrtRatioAtTick(tickLower);
             uint depositRatioX192 = sqrtPriceX96 *
                 FullMath.mulDiv(
                     sqrtPriceX96 - sqrtPriceX96Lower,
@@ -55,18 +62,18 @@ library RebalanceDeposit {
 
             isSwapX =
                 depositRatioX192 > FullMath.mulDiv(amountY, 2 ** 192, amountX);
-        }
 
-        uint128 liquidity = IUniswapV3Pool(pool).liquidity();
-        SqrtPriceX96Range memory range = SqrtPriceX96Range(
-            amountX,
-            amountY,
-            pool.fee(),
-            liquidity,
-            sqrtPriceX96Upper,
-            sqrtPriceX96Lower,
-            sqrtPriceX96
-        );
+            liquidity = IUniswapV3Pool(pool).liquidity();
+            range = SqrtPriceX96Range(
+                amountX,
+                amountY,
+                pool.fee(),
+                liquidity,
+                sqrtPriceX96Upper,
+                sqrtPriceX96Lower,
+                sqrtPriceX96
+            );
+        }
         (int pn0, int pn1, int pn2) = isSwapX
             ? _calcSwapAmountX(range)
             : _calcSwapAmountY(range);
