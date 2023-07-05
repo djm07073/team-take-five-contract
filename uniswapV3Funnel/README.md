@@ -1,13 +1,11 @@
-# Sample Hardhat Project
+# UniswapV3 Funnel
 
-This project demonstrates a basic Hardhat use case. It comes with a sample contract, a test for that contract, and a script that deploys that contract.
+## How to start Funnel
 
-Try running some of the following tasks:
+`npm i`
 
-```shell
-npx hardhat help
-npx hardhat test
-REPORT_GAS=true npx hardhat test
-npx hardhat node
-npx hardhat run scripts/deploy.ts
-```
+## Modification
+
+** version crash **
+node_modules/@uniswap/v2-core/libraries/Math.sol
+`pragma solidity =0.5.16` -> `pragma solidity >= 0.5.16`

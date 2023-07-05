@@ -3,13 +3,13 @@ pragma abicoder v2;
 
 import "@openzeppelin/contracts/token/ERC20/ERC20.sol";
 import "@openzeppelin/contracts/utils/SafeCast.sol";
-import "./FullMath.sol";
-import "./Math.sol";
-import "./TickMath.sol";
+import "@uniswap/v3-core/contracts/libraries/FullMath.sol";
+import "@uniswap/v3-core/contracts/interfaces/IUniswapV3Pool.sol";
+import "@uniswap/v3-core/contracts/interfaces/IUniswapV3Factory.sol";
+import "@uniswap/v3-core/contracts/libraries/TickMath.sol";
+import "@uniswap/v2-core/contracts/libraries/Math.sol";
+import "@uniswap/v3-periphery/contracts/interfaces/INonfungiblePositionManager.sol";
 import "./FullMathInt.sol";
-import "../interfaces/INonfungiblePositionManager.sol";
-import "../interfaces/IUniswapV3Pool.sol";
-import "../interfaces/IUniswapV3Factory.sol";
 
 library RebalanceDeposit {
     struct SqrtPriceX96Range {

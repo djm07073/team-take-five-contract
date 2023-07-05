@@ -1,14 +1,14 @@
 // SPDX-License-Identifier: SEE LICENSE IN LICENSE
 pragma solidity >=0.7.6;
 pragma abicoder v2;
-import "./libraries/TickMath.sol";
-import "./interfaces/INonfungiblePositionManager.sol";
-import "./interfaces/ISwapRouter.sol";
-import "./interfaces/IUniswapV3Pool.sol";
-import "./interfaces/IUniswapV3Factory.sol";
-import "./libraries/TransferHelper.sol";
+import "@uniswap/v3-periphery/contracts/interfaces/INonfungiblePositionManager.sol";
+import "@uniswap/v3-periphery/contracts/interfaces/ISwapRouter.sol";
+import "@uniswap/v3-core/contracts/libraries/TickMath.sol";
+import "@uniswap/v3-core/contracts/interfaces/IUniswapV3Pool.sol";
+import "@uniswap/v3-core/contracts/interfaces/IUniswapV3Factory.sol";
+import "@uniswap/v3-core/contracts/interfaces/IERC20Minimal.sol";
+import "@uniswap/lib/contracts/libraries/TransferHelper.sol";
 import "./libraries/RebalanceDeposit.sol";
-import "./interfaces/IERC20Minimal.sol";
 
 contract UniswapV3Funnel {
     ISwapRouter public immutable swapRouter;

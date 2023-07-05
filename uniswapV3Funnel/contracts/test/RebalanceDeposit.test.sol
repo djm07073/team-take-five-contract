@@ -2,9 +2,9 @@
 pragma solidity ^0.7.0;
 pragma experimental ABIEncoderV2;
 import "../libraries/RebalanceDeposit.sol";
-import "../interfaces/IUniswapV3Pool.sol";
-import "../interfaces/INonfungiblePositionManager.sol";
-import "../interfaces/IUniswapV3Factory.sol";
+import "@uniswap/v3-core/contracts/interfaces/IUniswapV3Pool.sol";
+import "@uniswap/v3-periphery/contracts/interfaces/INonfungiblePositionManager.sol";
+import "@uniswap/v3-core/contracts/interfaces/IUniswapV3Factory.sol";
 
 contract RebalanceDepositTest {
     function rebalanceDepositTest(
