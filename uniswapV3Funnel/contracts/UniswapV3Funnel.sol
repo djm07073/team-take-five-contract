@@ -463,8 +463,6 @@ contract UniswapV3Funnel {
             (
                 uint baseAmount,
                 bool isSwapA,
-                ,
-                ,
                 uint24 fee,
                 address _tokenA,
                 address _tokenB

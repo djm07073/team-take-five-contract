@@ -10,6 +10,7 @@ import "@uniswap/v3-core/contracts/libraries/TickMath.sol";
 import "@uniswap/v2-core/contracts/libraries/Math.sol";
 import "@uniswap/v3-periphery/contracts/interfaces/INonfungiblePositionManager.sol";
 import "./FullMathInt.sol";
+import "hardhat/console.sol";
 
 library RebalanceDeposit {
     struct SqrtPriceX96Range {
@@ -45,6 +46,7 @@ library RebalanceDeposit {
         uint128 liquidity;
         int24 tickCurrent;
         uint160 sqrtPriceX96;
+
         {
             (sqrtPriceX96, tickCurrent, , , , , ) = IUniswapV3Pool(pool)
                 .slot0();
@@ -52,16 +54,15 @@ library RebalanceDeposit {
             require(tickUpper > tickCurrent, "U");
             require(tickCurrent > tickLower, "L");
             uint160 sqrtPriceX96Upper = TickMath.getSqrtRatioAtTick(tickUpper);
+            console.log(sqrtPriceX96Upper);
             uint160 sqrtPriceX96Lower = TickMath.getSqrtRatioAtTick(tickLower);
-            uint depositRatioX192 = sqrtPriceX96 *
-                FullMath.mulDiv(
-                    sqrtPriceX96 - sqrtPriceX96Lower,
-                    sqrtPriceX96Upper,
-                    sqrtPriceX96Upper - sqrtPriceX96
-                );
+            console.log(sqrtPriceX96Lower);
 
             isSwapX =
-                depositRatioX192 > FullMath.mulDiv(amountY, 2 ** 192, amountX);
+                ((amountY * (sqrtPriceX96 - sqrtPriceX96)) << 192) <
+                ((sqrtPriceX96 - sqrtPriceX96Lower) *
+                    sqrtPriceX96Upper *
+                    sqrtPriceX96);
 
             liquidity = IUniswapV3Pool(pool).liquidity();
             range = SqrtPriceX96Range(
@@ -74,18 +75,10 @@ library RebalanceDeposit {
                 sqrtPriceX96
             );
         }
-        (int pn0, int pn1, int pn2) = isSwapX
-            ? _calcSwapAmountX(range)
-            : _calcSwapAmountY(range);
+        uint sqrtPriceX96Next = isSwapX
+            ? _calcSqrtPriceNextCase1(range)
+            : _calcSqrtPriceNextCase2(range);
 
-        uint sqrtPriceX96Next;
-        {
-            uint temp = uint(pn1 ** 2 - pn2 * pn0);
-            require(temp >= 0, "SqrtEquation: negative discriminant");
-            sqrtPriceX96Next = SafeCast.toUint256(
-                (int(Math.sqrt(temp)) - pn1) / pn2
-            );
-        }
         baseAmount = isSwapX
             ? FullMath.mulDiv(
                 FullMath.mulDiv(liquidity, 2 ** 96, sqrtPriceX96),
@@ -111,14 +104,13 @@ library RebalanceDeposit {
         returns (
             uint256 baseAmount,
             bool isSwapX,
-            uint160 sqrtPriceX96Upper,
-            uint160 sqrtPriceX96Lower,
             uint24 fee,
             address tokenA,
             address tokenB
         )
     {
         address pool;
+        SqrtPriceX96Range memory range;
         {
             int24 tickLower;
             int24 tickUpper;
@@ -136,150 +128,196 @@ library RebalanceDeposit {
                 ,
 
             ) = positionManager.positions(tokenId);
-            sqrtPriceX96Upper = TickMath.getSqrtRatioAtTick(tickUpper);
-            sqrtPriceX96Lower = TickMath.getSqrtRatioAtTick(tickLower);
             pool = factory.getPool(tokenA, tokenB, fee);
             require(pool != address(0), "pool does not exist");
+            (uint160 sqrtPriceX96, , , , , , ) = IUniswapV3Pool(pool).slot0();
+            uint128 liquidity = IUniswapV3Pool(pool).liquidity();
+            range = SqrtPriceX96Range(
+                amountX,
+                amountY,
+                IUniswapV3Pool(pool).fee(),
+                liquidity,
+                TickMath.getSqrtRatioAtTick(tickUpper),
+                TickMath.getSqrtRatioAtTick(tickLower),
+                sqrtPriceX96
+            );
+            require(range.upper > range.lower, "UL");
+            require(range.upper > sqrtPriceX96, "U");
+            require(sqrtPriceX96 > range.lower, "L");
         }
 
-        (uint160 sqrtPriceX96, , , , , , ) = IUniswapV3Pool(pool).slot0();
-        uint128 liquidity = IUniswapV3Pool(pool).liquidity();
-
         require(address(pool) != address(0), "pool does not exist");
-        require(sqrtPriceX96Upper > sqrtPriceX96, "U");
-        require(sqrtPriceX96 > sqrtPriceX96Lower, "L");
-        require(sqrtPriceX96Upper > sqrtPriceX96Lower, "UL");
 
         {
-            uint depositRatioX192 = sqrtPriceX96 *
+            uint depositRatioX192 = range.price *
                 FullMath.mulDiv(
-                    sqrtPriceX96 - sqrtPriceX96Lower,
-                    sqrtPriceX96Upper,
-                    sqrtPriceX96Upper - sqrtPriceX96
+                    range.price - range.lower,
+                    range.upper,
+                    range.upper - range.price
                 );
 
             isSwapX =
-                depositRatioX192 > FullMath.mulDiv(amountY, 2 ** 192, amountX);
+                depositRatioX192 >
+                FullMath.mulDiv(range.amountY, 2 ** 192, range.amountX);
         }
 
-        SqrtPriceX96Range memory range = SqrtPriceX96Range(
-            amountX,
-            amountY,
-            IUniswapV3Pool(pool).fee(),
-            liquidity,
-            sqrtPriceX96Upper,
-            sqrtPriceX96Lower,
-            sqrtPriceX96
-        );
-        (int pn0, int pn1, int pn2) = isSwapX
-            ? _calcSwapAmountX(range)
-            : _calcSwapAmountY(range);
+        uint sqrtPriceX96Next = isSwapX
+            ? _calcSqrtPriceNextCase1(range)
+            : _calcSqrtPriceNextCase2(range);
 
-        uint sqrtPriceX96Next;
-        {
-            uint temp = uint(pn1 ** 2 - pn2 * pn0);
-            require(temp >= 0, "SqrtEquation: negative discriminant");
-            sqrtPriceX96Next = SafeCast.toUint256(
-                (int(Math.sqrt(temp)) - pn1) / pn2
-            );
-        }
         baseAmount = isSwapX
             ? FullMath.mulDiv(
-                FullMath.mulDiv(liquidity, 2 ** 96, sqrtPriceX96),
-                sqrtPriceX96Next - sqrtPriceX96,
+                FullMath.mulDiv(range.liquidity, 2 ** 96, range.price),
+                sqrtPriceX96Next - range.price,
                 sqrtPriceX96Next
             )
             : FullMath.mulDiv(
-                liquidity,
-                sqrtPriceX96 - sqrtPriceX96Next,
+                range.liquidity,
+                range.price - sqrtPriceX96Next,
                 2 ** 96
             );
     }
 
-    function _calcSwapAmountX(
+    function _calcSqrtPriceNextCase1(
         SqrtPriceX96Range memory range
-    ) private pure returns (int pn0, int pn1, int pn2) {
-        pn2 =
-            SafeCast.toInt256(range.upper) *
-            FullMathInt.mulDiv(
-                FullMath.mulDiv(range.price, 1e6 - range.fee, 1e6),
-                range.amountX,
-                uint256(range.liquidity) * range.price * 2 ** 96
-            ) -
-            SafeCast.toInt256(range.upper / range.price);
-        pn1 =
-            range.upper -
-            FullMathInt.mulDiv(range.upper, range.lower, range.price) *
-            (1 +
-                FullMathInt.mulDiv(
-                    FullMath.mulDiv(range.price, 1e6 - range.fee, 1e6),
-                    range.amountX,
-                    uint256(range.liquidity) << 96
-                )) +
-            FullMathInt.mulDiv(
-                (uint256(range.amountY) << 96) -
-                    (range.liquidity * (range.price + range.upper)),
-                FullMath.mulDiv(range.price, 1e6 - range.fee, 1e6),
-                range.liquidity * range.price
-            );
-
-        pn1 /= 2;
-        pn0 = SafeCast.toInt256(
-            FullMath.mulDiv(range.price, 1e6 - range.fee, 1e6) *
-                range.upper -
-                range.upper *
-                range.lower
-        );
-    }
-
-    function _calcSwapAmountY(
-        SqrtPriceX96Range memory range
-    ) private pure returns (int pn0, int pn1, int pn2) {
-        pn2 =
-            SafeCast.toInt256(
-                FullMath.mulDiv(range.upper, range.amountX, 2 ** 192)
-            ) -
-            SafeCast.toInt256(
+    ) private pure returns (uint sqrtPriceX96Next) {
+        uint mulDivYL = FullMath.mulDiv(
+            range.amountY,
+            2 ** 96,
+            range.liquidity
+        ); // Y * L / 2^(96)
+        //f(Pn)
+        int pn3 = 1;
+        int pn2 = -SafeCast.toInt256(
+            (range.upper +
+                2 *
+                range.price +
+                mulDivYL +
+                FullMath.mulDiv(range.upper, 1e6, 1e6 - range.fee) +
                 FullMath.mulDiv(
                     range.upper,
-                    range.liquidity,
-                    uint(range.price) << 96
-                )
-            ) +
-            SafeCast.toInt256(range.liquidity);
-        pn1 =
-            range.upper *
-            (SafeCast.toInt256(
-                FullMath.mulDiv(range.liquidity, range.upper, 2 ** 96)
-            ) -
-                SafeCast.toInt256(
-                    FullMath.mulDiv(range.amountX, range.lower, 2 ** 192)
-                ) +
-                SafeCast.toInt256(
-                    FullMath.mulDiv(range.liquidity, range.lower, 2 ** 96)
-                )) +
-            SafeCast.toInt256(
-                FullMath.mulDiv(
-                    (FullMath.mulDiv(range.price, 1e6 - range.fee, 1e6) << 96),
-                    range.amountY,
-                    range.price
-                )
-            ) -
-            SafeCast.toInt256(range.liquidity * (range.price + range.upper));
-        pn1 /= 2;
+                    range.amountX,
+                    range.liquidity << 96
+                ))
+        );
+        int pn1 = SafeCast.toInt256(
+            (range.price +
+                mulDivYL +
+                FullMath.mulDiv(range.price, range.amountX, range.liquidity)) *
+                (range.upper + range.price) +
+                FullMath.mulDiv(range.upper, range.price, 1 << 96) *
+                (1 << (96 - uint(range.amountX) / range.liquidity))
+        );
+        int pn0 = SafeCast.toInt256(
+            range.price +
+                (range.amountY * range.upper * range.price * (1 << 96)) /
+                range.liquidity
+        );
 
-        pn0 =
-            -SafeCast.toInt256(
-                range.upper *
-                    FullMath.mulDiv(range.liquidity, range.lower, 2 ** 96)
-            ) -
-            range.upper *
-            (SafeCast.toInt256(
+        // find root using Newton Method
+        // x1 = x0 - f(x0)/f'(x0)
+        // x1 = sqrtPriceX96NextSecond
+        int sqrtPriceX96NextFirst = range.upper;
+        int sqrtPriceX96NextSecond = sqrtPriceX96NextFirst -
+            _cubicEquation(pn3, pn2, pn1, pn0, sqrtPriceX96NextFirst) /
+            _cubicEquationDerivative(pn3, pn2, pn1, sqrtPriceX96NextFirst);
+
+        while (sqrtPriceX96NextFirst != sqrtPriceX96NextSecond) {
+            sqrtPriceX96NextFirst = sqrtPriceX96NextSecond;
+            sqrtPriceX96NextSecond =
+                sqrtPriceX96NextFirst -
+                _cubicEquation(pn3, pn2, pn1, pn0, sqrtPriceX96NextFirst) /
+                _cubicEquationDerivative(pn3, pn2, pn1, sqrtPriceX96NextFirst);
+        }
+        sqrtPriceX96Next = uint(sqrtPriceX96NextSecond);
+    }
+
+    function _calcSqrtPriceNextCase2(
+        SqrtPriceX96Range memory range
+    ) private pure returns (uint sqrtPriceX96Next) {
+        uint intermediate = FullMath.mulDiv(
+            FullMath.mulDiv(range.amountY, 1 << 96, 1e6),
+            1e6 - range.fee,
+            range.liquidity
+        );
+        int pn3 = SafeCast.toInt256(
+            1 +
                 FullMath.mulDiv(
-                    (FullMath.mulDiv(range.price, 1e6 - range.fee, 1e6) << 96),
-                    range.amountY,
-                    range.price
+                    FullMath.mulDiv(range.amountX, range.upper, 1e6),
+                    1e6 - range.fee,
+                    uint(range.liquidity) << 96
+                ) -
+                FullMath.mulDiv(range.price, 1e6 - range.fee, 1e6)
+        );
+        int pn2 = SafeCast.toInt256(
+            intermediate -
+                (range.price + range.upper) -
+                (range.price + range.lower) *
+                FullMath.mulDiv(
+                    FullMath.mulDiv(range.amountX, range.upper, 1e6),
+                    1e6 - range.fee,
+                    uint(range.liquidity) << 96
+                ) +
+                FullMath.mulDiv(
+                    FullMath.mulDiv(range.price, range.lower, 1e6),
+                    1e6 - range.fee,
+                    1
                 )
-            ) - SafeCast.toInt256(range.liquidity * range.price));
+        );
+        int pn1 = -SafeCast.toInt256(
+            (range.upper + range.price) *
+                intermediate +
+                (range.price ** 2 + 2 * range.price * range.upper) +
+                FullMath.mulDiv(
+                    FullMath.mulDiv(range.amountX, range.upper, 1e6),
+                    range.price,
+                    uint(range.liquidity) << 96
+                ) *
+                range.lower
+        );
+        int pn0 = SafeCast.toInt256(
+            FullMath.mulDiv(
+                intermediate,
+                range.price * range.upper,
+                range.liquidity
+            ) -
+                FullMath.mulDiv(
+                    uint(range.price) ** 2,
+                    range.upper,
+                    range.liquidity
+                )
+        );
+        int sqrtPriceX96NextFirst = range.upper;
+        int sqrtPriceX96NextSecond = sqrtPriceX96NextFirst -
+            _cubicEquation(pn3, pn2, pn1, pn0, sqrtPriceX96NextFirst) /
+            _cubicEquationDerivative(pn3, pn2, pn1, sqrtPriceX96NextFirst);
+
+        while (sqrtPriceX96NextFirst != sqrtPriceX96NextSecond) {
+            sqrtPriceX96NextFirst = sqrtPriceX96NextSecond;
+            sqrtPriceX96NextSecond =
+                sqrtPriceX96NextFirst -
+                _cubicEquation(pn3, pn2, pn1, pn0, sqrtPriceX96NextFirst) /
+                _cubicEquationDerivative(pn3, pn2, pn1, sqrtPriceX96NextFirst);
+        }
+        sqrtPriceX96Next = uint(sqrtPriceX96NextSecond);
+    }
+
+    function _cubicEquation(
+        int pn3,
+        int pn2,
+        int pn1,
+        int pn0,
+        int input
+    ) private pure returns (int output) {
+        output = pn3 * (input ** 3) + pn2 * (input ** 2) + pn1 * (input) + pn0;
+    }
+
+    function _cubicEquationDerivative(
+        int pn3,
+        int pn2,
+        int pn1,
+        int input
+    ) private pure returns (int output) {
+        output = 3 * pn3 * (input ** 2) + 2 * pn2 * (input) + pn1;
     }
 }

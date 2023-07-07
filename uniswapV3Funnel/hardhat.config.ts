@@ -64,8 +64,8 @@ export default {
   networks: {
     hardhat: {
       forking: {
-        url: "https://eth.llamarpc.com",
-        blockNumber: 17618304,
+        url: "https://rpc.ankr.com/eth",
+        blockNumber: 17627264,
       },
     },
     baobab: {

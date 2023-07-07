@@ -35,8 +35,6 @@ contract RebalanceDepositTest {
         returns (
             uint256 baseAmount,
             bool isSwapX,
-            uint160 sqrtPriceX96Upper,
-            uint160 sqrtPriceX96Lower,
             uint24 fee,
             address tokenA,
             address tokenB
