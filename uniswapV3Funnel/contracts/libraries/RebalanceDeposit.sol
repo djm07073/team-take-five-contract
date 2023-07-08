@@ -54,9 +54,8 @@ library RebalanceDeposit {
             require(tickUpper > tickCurrent, "U");
             require(tickCurrent > tickLower, "L");
             uint160 sqrtPriceX96Upper = TickMath.getSqrtRatioAtTick(tickUpper);
-            console.log(sqrtPriceX96Upper);
+
             uint160 sqrtPriceX96Lower = TickMath.getSqrtRatioAtTick(tickLower);
-            console.log(sqrtPriceX96Lower);
 
             isSwapX =
                 ((amountY * (sqrtPriceX96 - sqrtPriceX96)) << 192) <
@@ -78,6 +77,7 @@ library RebalanceDeposit {
         uint sqrtPriceX96Next = isSwapX
             ? _calcSqrtPriceNextCase1(range)
             : _calcSqrtPriceNextCase2(range);
+        console.log(sqrtPriceX96Next);
 
         baseAmount = isSwapX
             ? FullMath.mulDiv(
